@@ -153,7 +153,6 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
     // Groq API config
-    const GROQ_API_KEY = 'YOUR_GROQ_API_KEY'; // User must set this
     const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
     const MODEL = 'qwen/qwen3-32b';
 
@@ -203,6 +202,8 @@ Be medically accurate. Extract ALL tests found. Use standard clinical reference 
       const [result, setResult] = useState(null);
       const [error, setError] = useState(null);
       const [dragOver, setDragOver] = useState(false);
+      const [apiKey, setApiKey] = useState(localStorage.getItem('groq_api_key') || '');
+      const [showKeyInput, setShowKeyInput] = useState(false);
 
       const extractTextFromPDF = async (pdfFile) => {
         const arrayBuffer = await pdfFile.arrayBuffer();
@@ -218,13 +219,14 @@ Be medically accurate. Extract ALL tests found. Use standard clinical reference 
       };
 
       const analyzeLabResults = async (text, language) => {
+        const key = localStorage.getItem('groq_api_key') || apiKey;
         const langMap = { EN: 'English', FR: 'French', VN: 'Vietnamese' };
         const prompt = SYSTEM_PROMPT.replace('{lang}', langMap[language]);
         
         const response = await fetch(GROQ_API_URL, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${GROQ_API_KEY}`,
+            'Authorization': `Bearer ${key}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -339,6 +341,27 @@ Be medically accurate. Extract ALL tests found. Use standard clinical reference 
           </div>
 
           {!result && !loading && !error && (
+            !apiKey && (
+              <div className="section" style={{ textAlign: 'center', padding: '2rem' }}>
+                <h3 style={{ marginBottom: '1rem' }}>🔑 API Key Required</h3>
+                <p style={{ color: '#666', marginBottom: '1rem' }}>Enter your Groq API key to use Qwen3-32b</p>
+                <input
+                  type="password"
+                  placeholder="gsk_..."
+                  style={{ padding: '10px 14px', borderRadius: '8px', border: '1px solid #ddd', width: '300px', fontSize: '0.9rem' }}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+                <button
+                  onClick={() => { localStorage.setItem('groq_api_key', apiKey); setApiKey(apiKey); setShowKeyInput(false); }}
+                  style={{ marginLeft: '8px', padding: '10px 20px', borderRadius: '8px', border: 'none', background: '#1976d2', color: 'white', cursor: 'pointer' }}
+                >
+                  Save
+                </button>
+              </div>
+            )
+          )}
+
+          {!result && !loading && !error && apiKey && (
             <div
               className={`upload-zone ${dragOver ? 'drag-over' : ''}`}
               onDragOver={handleDragOver}
