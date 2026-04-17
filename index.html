@@ -336,24 +336,36 @@ Return JSON only. No markdown.`;
         content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
         content = content.replace(/```json\n?|```\n?/g, '').trim();
         
-        const jsonMatch = content.match(/\{[\s\S]*\}/s);
-        if (!jsonMatch) {
-          throw new Error('Could not parse response');
+        const jsonStart = content.indexOf('{');
+        const jsonEnd = content.lastIndexOf('}');
+        if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+          throw new Error('No valid JSON found in response');
         }
         
+        let jsonStr = content.substring(jsonStart, jsonEnd + 1);
+        
+        let result;
         try {
-          return JSON.parse(jsonMatch[0]);
+          result = JSON.parse(jsonStr);
         } catch (e) {
-          let cleaned = jsonMatch[0]
+          jsonStr = jsonStr
             .replace(/,\s*([}\]])/g, '$1')
             .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
-            .replace(/:\s*'([^']*)'/g, ': "$1"');
+            .replace(/:\s*'([^']*)'/g, ': "$1"')
+            .replace(/\n/g, ' ')
+            .replace(/\s+/g, ' ');
           try {
-            return JSON.parse(cleaned);
+            result = JSON.parse(jsonStr);
           } catch (e2) {
-            throw new Error('Invalid JSON from AI');
+            throw new Error('Invalid JSON response from AI');
           }
         }
+        
+        if (!result?.tests?.length) {
+          throw new Error('No tests found in response');
+        }
+        
+        return result;
       };
 
       const processFile = async (selectedFile) => {
