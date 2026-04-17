@@ -289,32 +289,48 @@ Return JSON only. No markdown.`;
         const prompt = `You are a medical lab results analyzer. Return ONLY valid JSON with this exact structure - no markdown, no explanation:
 {"patient_summary":"summary text","overall_status":"good|attention|critical","urgent_action_required":false,"key_findings":["finding1"],"tests":[{"name":"Test Name","value":"123","unit":"mg/dL","reference_range":"70-100","status":"normal|high|low","explanation":"Brief explanation","next_step":"What to do"}]}`;
         
-        const response = await fetch(currentProv.apiUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${key}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: currentProv.model,
-            messages: [
-              { role: 'system', content: prompt },
-              { role: 'user', content: `Parse this lab report text and return JSON only:\n\n${text.substring(0, 4000)}` }
-            ],
-            temperature: 0.1,
-            max_tokens: 2000
-          })
-        });
-        
-        if (!response.ok) {
-          if (response.status === 429) {
-            setLoadingText('Rate limited. Retrying...');
-            await new Promise(r => setTimeout(r, 10000));
-            return analyzeLabResults(text, language);
+        const sendWithRetry = async (attempt = 0) => {
+          const groqLimits = { rpm: 60, minWait: 1000 };
+          const waitTime = Math.min(groqLimits.minWait * (attempt + 1), 60000);
+          
+          if (attempt > 0) {
+            setLoadingText(`Rate limited. Waiting ${waitTime/1000}s...`);
           }
-          throw new Error(`API error (${response.status})`);
-        }
+          
+          await new Promise(r => setTimeout(r, groqLimits.minWait));
+          
+          const response = await fetch(currentProv.apiUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${key}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: currentProv.model,
+              messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: `Parse this lab report text and return JSON only:\n\n${text.substring(0, 4000)}` }
+              ],
+              temperature: 0.1,
+              max_tokens: 2000
+            })
+          });
+          
+          if (response.status === 429) {
+            if (attempt >= 4) {
+              throw new Error('Rate limit exceeded. Please wait a minute and try again.');
+            }
+            return sendWithRetry(attempt + 1);
+          }
+          
+          if (!response.ok) {
+            throw new Error(`API error (${response.status})`);
+          }
+          
+          return response;
+        };
         
+        const response = await sendWithRetry();
         const data = await response.json();
         let content = data.choices[0].message.content;
         content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
@@ -349,6 +365,8 @@ Return JSON only. No markdown.`;
         }
       };
       
+      let lastRequestTime = 0;
+      
       const sendMessage = async () => {
         if (!chatInput.trim() || chatLoading) return;
         
@@ -356,6 +374,13 @@ Return JSON only. No markdown.`;
         setChatInput('');
         setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
         setChatLoading(true);
+        
+        const now = Date.now();
+        const timeSinceLastRequest = now - lastRequestTime;
+        if (timeSinceLastRequest < 1100) {
+          await new Promise(r => setTimeout(r, 1100 - timeSinceLastRequest));
+        }
+        lastRequestTime = Date.now();
         
         try {
           const currentProv = PROVIDERS.find(p => p.id === provider) || PROVIDERS[0];
