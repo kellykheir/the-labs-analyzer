@@ -284,132 +284,109 @@ Return JSON only. No markdown.`;
         const langMap = { EN: 'English', FR: 'French', VN: 'Vietnamese', AR: 'Arabic' };
         const currentLang = langMap[lang] || 'English';
         
-        const analyzeChunk = async (chunkText) => {
-          const prompt = `You are a medical lab results analyzer. Parse the following text and extract all lab tests. Return a JSON object:
-{"tests":[{"name":"Test Name","value":"actual value","unit":"unit","reference_range":"normal range","status":"normal|high|low|borderline|critical","explanation":"Simple explanation","next_step":"What to do"}],"key_findings":[]}`;
-          const userMessage = `Extract lab tests from this text:\n\n${chunkText}`;
+        const sendRequest = async (chunkText, retryCount = 0) => {
+          const prompt = `You are a medical lab results analyzer. Return JSON with tests array containing {name, value, unit, reference_range, status, explanation, next_step}. Use ${currentLang} for explanations.`;
+          const userMessage = `Extract lab tests from this text. Return valid JSON only:\n\n${chunkText}`;
           
-          let retries = 0;
-          const maxRetries = 3;
+          const waitTime = Math.min(60000, (retryCount + 1) * 15000);
+          setLoadingText(retryCount > 0 ? `Rate limited. Waiting ${waitTime/1000}s...` : 'Analyzing...');
           
-          while (retries < maxRetries) {
+          const response = await fetch(currentProv.apiUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${key}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: currentProv.model,
+              messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: userMessage }
+              ],
+              temperature: 0.1,
+              max_tokens: 2000
+            })
+          });
+          
+          if (response.status === 429) {
+            if (retryCount >= 5) {
+              throw new Error('Rate limit exceeded. Please try again later.');
+            }
+            await new Promise(r => setTimeout(r, waitTime));
+            return sendRequest(chunkText, retryCount + 1);
+          }
+          
+          if (response.status === 413) {
+            const halfLen = Math.floor(chunkText.length / 2);
+            const midPoint = chunkText.lastIndexOf('\n', halfLen);
+            const chunk1 = chunkText.substring(0, midPoint);
+            const chunk2 = chunkText.substring(midPoint);
+            const result1 = await sendRequest(chunk1, 0);
+            const result2 = await sendRequest(chunk2, 0);
+            return {
+              tests: [...(result1?.tests || []), ...(result2?.tests || [])],
+              key_findings: [...(result1?.key_findings || []), ...(result2?.key_findings || [])].slice(0, 5)
+            };
+          }
+          
+          if (!response.ok) {
+            throw new Error(`API error (${response.status})`);
+          }
+          
+          const data = await response.json();
+          let content = data.choices[0].message.content;
+          content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+          content = content.replace(/```json\n?|```\n?/g, '').trim();
+          
+          const jsonMatch = content.match(/\{[\s\S]*\}/s);
+          if (!jsonMatch) {
+            return null;
+          }
+          
+          try {
+            return JSON.parse(jsonMatch[0]);
+          } catch (e) {
+            const cleaned = jsonMatch[0]
+              .replace(/,\s*([}\]])/g, '$1')
+              .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
             try {
-              const response = await fetch(currentProv.apiUrl, {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${key}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  model: currentProv.model,
-                  messages: [
-                    { role: 'system', content: prompt },
-                    { role: 'user', content: userMessage }
-                  ],
-                  temperature: 0.1,
-                  max_tokens: 2000
-              })
-              });
-
-              if (!response.ok) {
-                if (response.status === 429) {
-                  retries++;
-                  if (retries >= maxRetries) {
-                    setLoadingText('Rate limit, waiting...');
-                    await new Promise(r => setTimeout(r, 30000));
-                    retries = 0;
-                    continue;
-                  }
-                  await new Promise(r => setTimeout(r, retries * 5000));
-                  continue;
-                }
-                if (response.status === 413) {
-                  return null;
-                }
-                throw new Error(`API error (${response.status})`);
-              }
-              
-              const data = await response.json();
-              let content = data.choices[0].message.content;
-              content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-              content = content.replace(/```json\n?|```\n?/g, '').trim();
-              
-              const jsonMatch = content.match(/\{[\s\S]*\}/s);
-              if (!jsonMatch) {
-                retries++;
-                continue;
-              }
-              
-              try {
-                return JSON.parse(jsonMatch[0]);
-              } catch (e) {
-                let fixed = jsonMatch[0]
-                  .replace(/,\s*\}/g, '}')
-                  .replace(/,\s*\]/g, ']')
-                  .replace(/\}\s*\]/g, '}]')
-                  .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
-                  .replace(/:\s*'([^']*)'/g, ': "$1"')
-                  .replace(/:\s*"([^"]*)$/gm, ': "$1"')
-                  .replace(/([^\n])\n(\s*[}\]])/g, '$1$2');
-                try {
-                  return JSON.parse(fixed);
-                } catch (e2) {
-                  return null;
-                }
-              }
-            } catch (e) {
-              if (e.message?.includes('429')) {
-                retries++;
-                if (retries >= maxRetries) {
-                  await new Promise(r => setTimeout(r, 30000));
-                  retries = 0;
-                  continue;
-                }
-                await new Promise(r => setTimeout(r, 5000));
-                continue;
-              }
-              throw e;
+              return JSON.parse(cleaned);
+            } catch (e2) {
+              return null;
             }
           }
-          return null;
         };
         
-        const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 10);
-        const maxLen = 3000;
+        const lines = text.split('\n').filter(l => l.trim().length > 5);
+        const chunkSize = 2500;
         const chunks = [];
-        let current = '';
-        
-        for (const para of paragraphs) {
-          if ((current + '\n\n' + para).length > maxLen) {
-            if (current) chunks.push(current);
-            current = para.substring(0, maxLen);
-          } else {
-            current = current ? current + '\n\n' + para : para;
-          }
+        for (let i = 0; i < lines.length; i += 15) {
+          chunks.push(lines.slice(i, i + 15).join('\n'));
         }
-        if (current) chunks.push(current);
         
         let merged = { tests: [], key_findings: [], patient_summary: '', overall_status: 'attention', urgent_action_required: false };
         const seenNames = new Set();
         
         for (let i = 0; i < chunks.length; i++) {
-          setLoadingText(`Analyzing part ${i + 1}/${chunks.length}...`);
-          const result = await analyzeChunk(chunks[i]);
-          if (result?.tests) {
-            for (const t of result.tests) {
-              if (!seenNames.has(t.name?.toLowerCase())) {
-                seenNames.add(t.name?.toLowerCase());
-                merged.tests.push(t);
+          try {
+            const result = await sendRequest(chunks[i]);
+            if (result?.tests) {
+              for (const t of result.tests) {
+                if (!seenNames.has(t.name?.toLowerCase()) && t.name && t.value) {
+                  seenNames.add(t.name.toLowerCase());
+                  merged.tests.push(t);
+                }
               }
             }
-          }
-          if (result?.key_findings) {
-            merged.key_findings = [...merged.key_findings, ...result.key_findings].slice(0, 5);
+          } catch (e) {
+            if (e.message.includes('Rate limit exceeded')) {
+              throw e;
+            }
           }
         }
         
         if (merged.tests.length === 0) {
-          merged.patient_summary = 'Analysis incomplete - no tests found in PDF';
+          merged.patient_summary = 'Analysis incomplete - no tests found';
         } else {
           merged.patient_summary = `Found ${merged.tests.length} lab tests. ${merged.tests.filter(t => t.status !== 'normal').length} values need attention.`;
         }
