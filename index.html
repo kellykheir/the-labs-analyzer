@@ -337,6 +337,30 @@ Be medically accurate. Extract ALL tests found. Use standard clinical reference 
                   {opt}
                 </button>
               ))}
+              <button
+                onClick={() => {
+                  const sampleResult = {
+                    patient_summary: "Your blood test shows mostly normal results. Hemoglobin is slightly elevated which may indicate dehydration. Cholesterol levels are within acceptable range. Vitamin D is slightly low.",
+                    overall_status: "attention",
+                    tests: [
+                      { name: "Hemoglobin", value: "16.2", unit: "g/dL", reference_range: "12.0-16.0", status: "high", explanation: "Slightly elevated hemoglobin may indicate dehydration or other conditions.", next_step: "Increase water intake and retest in 2 weeks." },
+                      { name: "Total Cholesterol", value: "185", unit: "mg/dL", reference_range: "<200", status: "normal", explanation: "Your cholesterol is within the desirable range.", next_step: "Maintain current diet and exercise routine." },
+                      { name: "HDL Cholesterol", value: "55", unit: "mg/dL", reference_range: ">40", status: "normal", explanation: "Good HDL (good cholesterol) level.", next_step: "Keep up the good work!" },
+                      { name: "LDL Cholesterol", value: "110", unit: "mg/dL", reference_range: "<100", status: "borderline", explanation: "LDL is slightly above optimal range.", next_step: "Consider reducing saturated fats in diet." },
+                      { name: "Vitamin D", value: "18", unit: "ng/mL", reference_range: "30-100", status: "low", explanation: "Vitamin D is below recommended level.", next_step: "Consider supplementation and more sun exposure." },
+                      { name: "Glucose (Fasting)", value: "95", unit: "mg/dL", reference_range: "70-100", status: "normal", explanation: "Blood sugar is within normal range.", next_step: "No action needed." },
+                      { name: "Creatinine", value: "0.9", unit: "mg/dL", reference_range: "0.6-1.2", status: "normal", explanation: "Kidney function appears normal.", next_step: "No action needed." },
+                      { name: "White Blood Cells", value: "7.5", unit: "K/uL", reference_range: "4.5-11.0", status: "normal", explanation: "White blood cell count is normal.", next_step: "No action needed." }
+                    ],
+                    key_findings: ["Hemoglobin is slightly elevated - may indicate dehydration", "Vitamin D is below normal - supplementation recommended", "LDL cholesterol is borderline high"],
+                    urgent_action_required: false
+                  };
+                  setResult(sampleResult);
+                }}
+                style={{ marginLeft: '1rem', padding: '6px 12px', borderRadius: '6px', border: '1px solid #ddd', background: '#f5f5f5', cursor: 'pointer', fontSize: '0.8rem' }}
+              >
+                Demo
+              </button>
             </div>
           </div>
 
