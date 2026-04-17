@@ -77,6 +77,19 @@
     .reset-btn:hover { background: #f5f5f5; }
     
     .footer { text-align: center; margin-top: 1rem; font-size: 12px; color: #999; }
+    
+    .chat-section { background: #fff; border-radius: 12px; padding: 1.25rem; margin-top: 1rem; }
+    .chat-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+    .chat-title { font-size: 14px; font-weight: 600; color: #333; }
+    .chat-toggle { background: none; border: none; cursor: pointer; font-size: 18px; }
+    .chat-messages { max-height: 300px; overflow-y: auto; margin-bottom: 1rem; }
+    .chat-message { padding: 10px 14px; border-radius: 12px; margin-bottom: 8px; max-width: 85%; }
+    .chat-message.user { background: #e3f2fd; margin-left: auto; }
+    .chat-message.ai { background: #f0f0f0; }
+    .chat-message small { font-size: 10px; color: #888; display: block; margin-top: 4px; }
+    .chat-input-wrap { display: flex; gap: 8px; }
+    .chat-input { flex: 1; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+    .chat-send { padding: 10px 20px; background: #1976d2; color: white; border: none; border-radius: 8px; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -162,8 +175,12 @@ Return JSON only. No markdown.`;
       const [result, setResult] = useState(null);
       const [error, setError] = useState(null);
       const [dragOver, setDragOver] = useState(false);
-      const [apiKey, setApiKey] = useState(localStorage.getItem('groq_api_key') || '');
+      const [apiKey, setApiKey] = useState(localStorage.getItem(`api_key_${localStorage.getItem('ai_provider') || 'groq'}`) || '');
       const [showKeyInput, setShowKeyInput] = useState(false);
+      const [chatOpen, setChatOpen] = useState(false);
+      const [messages, setMessages] = useState([]);
+      const [chatInput, setChatInput] = useState('');
+      const [chatLoading, setChatLoading] = useState(false);
 
     const MAX_TESTS_PER_CHUNK = 15;
     let lastRequestTime = 0;
@@ -385,6 +402,7 @@ Return JSON only. No markdown.`;
         setFile(selectedFile);
         setError(null);
         setResult(null);
+        setMessages([]);
         setLoading(true);
         setLoadingText('Extracting text from PDF...');
 
@@ -399,6 +417,48 @@ Return JSON only. No markdown.`;
           setLoading(false);
           setLoadingText('Analyzing your lab results...');
         }
+      };
+      
+      const sendMessage = async () => {
+        if (!chatInput.trim() || chatLoading) return;
+        
+        const userMsg = chatInput.trim();
+        setChatInput('');
+        setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+        setChatLoading(true);
+        
+        try {
+          const currentProv = PROVIDERS.find(p => p.id === provider) || PROVIDERS[0];
+          const key = localStorage.getItem(`api_key_${provider}`) || apiKey;
+          
+          const testsContext = result ? JSON.stringify(result.tests, null, 2) : '';
+          const systemPrompt = `You are a medical assistant helping a patient understand their lab results. 
+Only answer questions related to health, lab results, and medical topics.
+Be helpful, clear, and encourage consulting a doctor for medical decisions.
+Here are the user's lab results:\n${testsContext}`;
+          
+          const response = await fetch(currentProv.apiUrl, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: currentProv.model,
+              messages: [
+                { role: 'system', content: systemPrompt },
+                ...messages.map(m => ({ role: m.role, content: m.content })),
+                { role: 'user', content: userMsg }
+              ],
+              temperature: 0.7,
+              max_tokens: 1000
+            })
+          });
+          
+          const data = await response.json();
+          const reply = data.choices[0]?.message?.content || 'Sorry, I could not process that.';
+          setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
+        } catch (e) {
+          setMessages(prev => [...prev, { role: 'assistant', content: 'Error: Could not get response.' }]);
+        }
+        setChatLoading(false);
       };
 
       const handleDragOver = useCallback((e) => {
@@ -595,7 +655,42 @@ Return JSON only. No markdown.`;
                 </div>
               </div>
 
-              <button className="reset-btn" onClick={() => { setResult(null); setFile(null); }}>Analyze another report</button>
+              <button className="reset-btn" onClick={() => { setResult(null); setFile(null); setMessages([]); }}>Analyze another report</button>
+              
+              <div className="chat-section">
+                <div className="chat-header">
+                  <span className="chat-title">💬 Ask about your results</span>
+                  <button className="chat-toggle" onClick={() => setChatOpen(!chatOpen)}>{chatOpen ? '−' : '+'}</button>
+                </div>
+                {chatOpen && (
+                  <>
+                    <div className="chat-messages">
+                      {messages.length === 0 && (
+                        <div style={{ textAlign: 'center', color: '#888', fontSize: 13, padding: '1rem' }}>
+                          Ask questions about your lab results, what they mean, or what to do next.
+                        </div>
+                      )}
+                      {messages.map((m, i) => (
+                        <div key={i} className={`chat-message ${m.role}`}>
+                          <div>{m.content}</div>
+                          <small>{m.role === 'user' ? 'You' : 'AI'}</small>
+                        </div>
+                      ))}
+                      {chatLoading && <div className="chat-message ai">Thinking...</div>}
+                    </div>
+                    <div className="chat-input-wrap">
+                      <input 
+                        className="chat-input"
+                        placeholder="Ask about your results..."
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                      />
+                      <button className="chat-send" onClick={sendMessage} disabled={chatLoading}>Send</button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           )}
 
