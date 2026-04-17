@@ -288,7 +288,7 @@ Return JSON only. No markdown.`;
           const prompt = `You are a medical lab results analyzer. Return JSON with tests array containing {name, value, unit, reference_range, status, explanation, next_step}. Use ${currentLang} for explanations.`;
           const userMessage = `Extract lab tests from this text. Return valid JSON only:\n\n${chunkText}`;
           
-          const waitTime = Math.min(60000, (retryCount + 1) * 15000);
+          const waitTime = Math.min(90000, (retryCount + 1) * 20000);
           setLoadingText(retryCount > 0 ? `Rate limited. Waiting ${waitTime/1000}s...` : 'Analyzing...');
           
           const response = await fetch(currentProv.apiUrl, {
@@ -358,10 +358,10 @@ Return JSON only. No markdown.`;
         };
         
         const lines = text.split('\n').filter(l => l.trim().length > 5);
-        const chunkSize = 2500;
         const chunks = [];
-        for (let i = 0; i < lines.length; i += 15) {
-          chunks.push(lines.slice(i, i + 15).join('\n'));
+        for (let i = 0; i < lines.length; i += 8) {
+          const chunk = lines.slice(i, i + 8).join('\n');
+          if (chunk.length < 2000) chunks.push(chunk);
         }
         
         let merged = { tests: [], key_findings: [], patient_summary: '', overall_status: 'attention', urgent_action_required: false };
