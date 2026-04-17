@@ -2,6 +2,10 @@
 
 AI-powered lab report analysis for patients. Built for **Elfie Healthcare Track** at **Qwen AI Build Day**.
 
+## Demo Video
+
+https://youtu.be/syROVBcNmUU
+
 ## Demo
 
 Simply open `index.html` in a browser, enter your Groq API key, and upload a PDF lab report.
