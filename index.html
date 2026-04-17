@@ -433,6 +433,8 @@ Return JSON only. No markdown.`;
 
         try {
           const text = await extractTextFromPDF(selectedFile);
+          console.log('=== EXTRACTED TEXT ===', text.substring(0, 500));
+          console.log('=== PARSED TESTS ===', parseLabTests(text));
           setLoadingText('Analyzing lab results...');
           const analysis = await analyzeLabResults(text, lang);
           setResult(analysis);
