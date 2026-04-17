@@ -100,11 +100,13 @@
     // Configure PDF.js worker
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-    // Groq API config
-    const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-    const MODEL = 'qwen/qwen3-32b';
-
     const LANG_OPTIONS = ['EN', 'FR', 'VN', 'AR'];
+    
+    const PROVIDERS = [
+      { id: 'groq', name: 'Groq', model: 'qwen/qwen3-32b', apiUrl: 'https://api.groq.com/openai/v1/chat/completions', keyPlaceholder: 'gsk_...' },
+      { id: 'openrouter', name: 'OpenRouter', model: 'qwen/qwen3-32b', apiUrl: 'https://openrouter.ai/api/v1/chat/completions', keyPlaceholder: 'sk-or-...' },
+      { id: 'dashscope', name: 'DashScope', model: 'qwen-plus', apiUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', keyPlaceholder: 'sk-...' }
+    ];
 
     const SYSTEM_PROMPT = (lang) => `You are a clinical laboratory analyst. Analyze lab test results and respond in ${lang}.
 
