@@ -278,23 +278,6 @@ Return JSON only. No markdown.`;
         lastRequestTime = Date.now();
       };
 
-      const DEMO_RESULT = {
-        patient_summary: "Your blood test shows mostly normal results. Some values need attention.",
-        overall_status: "attention",
-        urgent_action_required: false,
-        key_findings: ["Hemoglobin slightly elevated", "LDL cholesterol borderline high", "Vitamin D insufficient"],
-        tests: [
-          { name: "Hemoglobin", value: "16.2", unit: "g/dL", reference_range: "12-16", status: "borderline", explanation: "Slightly above normal range. May indicate dehydration.", next_step: "Drink more water and retest in 3 months." },
-          { name: "Total Cholesterol", value: "239", unit: "mg/dL", reference_range: "<200", status: "high", explanation: "Cholesterol is above the desirable level.", next_step: "Consider dietary changes and exercise." },
-          { name: "HDL Cholesterol", value: "60", unit: "mg/dL", reference_range: ">40", status: "normal", explanation: "Good HDL (good cholesterol) level.", next_step: "Keep up the healthy habits!" },
-          { name: "LDL Cholesterol", value: "150", unit: "mg/dL", reference_range: "<100", status: "high", explanation: "LDL is above optimal range.", next_step: "Reduce saturated fats and consult doctor." },
-          { name: "Triglycerides", value: "140", unit: "mg/dL", reference_range: "<150", status: "normal", explanation: "Within normal range.", next_step: "No action needed." },
-          { name: "Glucose (Fasting)", value: "95", unit: "mg/dL", reference_range: "70-100", status: "normal", explanation: "Blood sugar is normal.", next_step: "Maintain current diet." },
-          { name: "Vitamin D", value: "20", unit: "ng/mL", reference_range: "30-100", status: "low", explanation: "Vitamin D level is insufficient.", next_step: "Consider supplementation after consulting doctor." },
-          { name: "TSH", value: "2.5", unit: "mIU/L", reference_range: "0.4-4.0", status: "normal", explanation: "Thyroid function is normal.", next_step: "No action needed." }
-        ]
-      };
-      
       const analyzeLabResults = async (text, language) => {
         const currentProv = PROVIDERS.find(p => p.id === provider) || PROVIDERS[0];
         const key = localStorage.getItem(`api_key_${provider}`) || apiKey;
@@ -303,61 +286,46 @@ Return JSON only. No markdown.`;
         
         setLoadingText('Analyzing lab results...');
         
-        await new Promise(r => setTimeout(r, 500));
-        
         const prompt = `You are a medical lab results analyzer. Return ONLY valid JSON with this exact structure - no markdown, no explanation:
 {"patient_summary":"summary text","overall_status":"good|attention|critical","urgent_action_required":false,"key_findings":["finding1"],"tests":[{"name":"Test Name","value":"123","unit":"mg/dL","reference_range":"70-100","status":"normal|high|low","explanation":"Brief explanation","next_step":"What to do"}]}`;
         
-        try {
-          const response = await fetch(currentProv.apiUrl, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${key}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              model: currentProv.model,
-              messages: [
-                { role: 'system', content: prompt },
-                { role: 'user', content: `Parse this lab report text and return JSON only:\n\n${text.substring(0, 4000)}` }
-              ],
-              temperature: 0.1,
-              max_tokens: 2000
-            })
-          });
-          
+        const response = await fetch(currentProv.apiUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${key}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: currentProv.model,
+            messages: [
+              { role: 'system', content: prompt },
+              { role: 'user', content: `Parse this lab report text and return JSON only:\n\n${text.substring(0, 4000)}` }
+            ],
+            temperature: 0.1,
+            max_tokens: 2000
+          })
+        });
+        
+        if (!response.ok) {
           if (response.status === 429) {
-            setLoadingText('Rate limited. Using demo data...');
-            await new Promise(r => setTimeout(r, 2000));
-            return DEMO_RESULT;
+            setLoadingText('Rate limited. Retrying...');
+            await new Promise(r => setTimeout(r, 10000));
+            return analyzeLabResults(text, language);
           }
-          
-          if (!response.ok) {
-            setLoadingText('API error. Using demo data...');
-            await new Promise(r => setTimeout(r, 1000));
-            return DEMO_RESULT;
-          }
-          
-          const data = await response.json();
-          let content = data.choices[0].message.content;
-          content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-          content = content.replace(/```json\n?|```\n?/g, '').trim();
-          
-          const jsonMatch = content.match(/\{[\s\S]*\}/s);
-          if (!jsonMatch) {
-            return DEMO_RESULT;
-          }
-          
-          const result = JSON.parse(jsonMatch[0]);
-          if (result?.tests?.length > 0) {
-            return result;
-          }
-          return DEMO_RESULT;
-        } catch (e) {
-          setLoadingText('Error. Using demo data...');
-          await new Promise(r => setTimeout(r, 1000));
-          return DEMO_RESULT;
+          throw new Error(`API error (${response.status})`);
         }
+        
+        const data = await response.json();
+        let content = data.choices[0].message.content;
+        content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+        content = content.replace(/```json\n?|```\n?/g, '').trim();
+        
+        const jsonMatch = content.match(/\{[\s\S]*\}/s);
+        if (!jsonMatch) {
+          throw new Error('Could not parse response');
+        }
+        
+        return JSON.parse(jsonMatch[0]);
       };
 
       const processFile = async (selectedFile) => {
