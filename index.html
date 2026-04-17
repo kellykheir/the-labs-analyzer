@@ -541,10 +541,32 @@ Here are the user's lab results:\n${testsContext}`;
 
           {!result && !loading && !error && !apiKey && (
             <div className="api-key-box">
-              <h3>🔑 API Key Required</h3>
-              <p>Enter your Groq API key to use Qwen3-32b</p>
-              <input type="password" placeholder="gsk_..." onChange={(e) => setApiKey(e.target.value)} />
-              <button onClick={() => { localStorage.setItem('groq_api_key', apiKey); }}>Save</button>
+              <h3>🔑 API Configuration</h3>
+              <p>Select AI provider and enter API key</p>
+              <div style={{ marginBottom: 12 }}>
+                <select 
+                  value={provider} 
+                  onChange={(e) => {
+                    setProvider(e.target.value);
+                    setApiKey(localStorage.getItem(`api_key_${e.target.value}`) || '');
+                  }}
+                  style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid #ddd', fontSize: 14, marginRight: 8, width: '100%' }}
+                >
+                  {PROVIDERS.map(p => (
+                    <option key={p.id} value={p.id}>{p.name} - {p.model}</option>
+                  ))}
+                </select>
+              </div>
+              <input 
+                type="password" 
+                placeholder={currentProvider.keyPlaceholder} 
+                onChange={(e) => setApiKey(e.target.value)} 
+                style={{ width: '100%', marginBottom: 12 }}
+              />
+              <button onClick={() => { 
+                localStorage.setItem('ai_provider', provider);
+                localStorage.setItem(`api_key_${provider}`, apiKey);
+              }}>Save & Connect</button>
             </div>
           )}
 
