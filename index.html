@@ -359,15 +359,21 @@ Return JSON only. No markdown.`;
         
         const lines = text.split('\n').filter(l => l.trim().length > 5);
         const chunks = [];
-        for (let i = 0; i < lines.length; i += 8) {
-          const chunk = lines.slice(i, i + 8).join('\n');
-          if (chunk.length < 2000) chunks.push(chunk);
+        for (let i = 0; i < lines.length; i += 5) {
+          chunks.push(lines.slice(i, i + 5).join('\n'));
         }
         
         let merged = { tests: [], key_findings: [], patient_summary: '', overall_status: 'attention', urgent_action_required: false };
         const seenNames = new Set();
+        let lastRequestTime = 0;
         
         for (let i = 0; i < chunks.length; i++) {
+          const now = Date.now();
+          const timeSinceLastRequest = now - lastRequestTime;
+          if (timeSinceLastRequest < 1000) {
+            await new Promise(r => setTimeout(r, 1000 - timeSinceLastRequest));
+          }
+          lastRequestTime = Date.now();
           try {
             const result = await sendRequest(chunks[i]);
             if (result?.tests) {
