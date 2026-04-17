@@ -433,9 +433,13 @@ Return JSON only. No markdown.`;
           const key = localStorage.getItem(`api_key_${provider}`) || apiKey;
           
           const testsContext = result ? JSON.stringify(result.tests, null, 2) : '';
+          const langNames = { EN: 'English', FR: 'French', VN: 'Vietnamese', AR: 'Arabic' };
+          const userLang = langNames[lang] || 'English';
           const systemPrompt = `You are a medical assistant helping a patient understand their lab results. 
 Only answer questions related to health, lab results, and medical topics.
 Be helpful, clear, and encourage consulting a doctor for medical decisions.
+ALWAYS respond in ${userLang} language.
+Use **bold** for important values and **critical** information.
 Here are the user's lab results:\n${testsContext}`;
           
           const response = await fetch(currentProv.apiUrl, {
@@ -694,12 +698,22 @@ Here are the user's lab results:\n${testsContext}`;
                           Ask questions about your lab results, what they mean, or what to do next.
                         </div>
                       )}
-                      {messages.map((m, i) => (
-                        <div key={i} className={`chat-message ${m.role}`}>
-                          <div>{m.content}</div>
-                          <small>{m.role === 'user' ? 'You' : 'AI'}</small>
-                        </div>
-                      ))}
+                      {messages.map((m, i) => {
+                        const renderMarkdown = (text) => {
+                          let html = text
+                            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                            .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+                            .replace(/\n- /g, '<br/>• ')
+                            .replace(/\n/g, '<br/>');
+                          return html;
+                        };
+                        return (
+                          <div key={i} className={`chat-message ${m.role}`}>
+                            <div dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }} />
+                            <small>{m.role === 'user' ? 'You' : 'AI'}</small>
+                          </div>
+                        );
+                      })}
                       {chatLoading && <div className="chat-message ai">Thinking...</div>}
                     </div>
                     <div className="chat-input-wrap">
