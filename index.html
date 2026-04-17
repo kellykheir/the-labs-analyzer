@@ -271,7 +271,8 @@ Return JSON only. No markdown.`;
       };
 
       const analyzeLabResults = async (text, language) => {
-        const key = localStorage.getItem('groq_api_key') || apiKey;
+        const currentProv = PROVIDERS.find(p => p.id === provider) || PROVIDERS[0];
+        const key = localStorage.getItem(`api_key_${provider}`) || apiKey;
         const langMap = { EN: 'English', FR: 'French', VN: 'Vietnamese', AR: 'Arabic' };
         const currentLang = langMap[lang] || 'English';
         
