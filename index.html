@@ -399,59 +399,6 @@ If no tests are found, return empty arrays and "Analysis incomplete" as summary.
         
         return { patient_summary: 'Analysis incomplete', overall_status: 'attention', tests: [], key_findings: [], urgent_action_required: false };
       };
-              fixed = bracketFix(fixed);
-              try {
-                chunkResult = JSON.parse(fixed);
-              } catch (e2) {
-                continue;
-              }
-            }
-            
-            if (!mergedResults) {
-              mergedResults = chunkResult;
-              if (chunks.length === 1) return mergedResults;
-            } else {
-              mergedResults.tests = [...(mergedResults.tests || []), ...(chunkResult.tests || [])];
-              mergedResults.key_findings = [
-                ...(mergedResults.key_findings || []),
-                ...(chunkResult.key_findings || [])
-              ].slice(0, 5);
-            }
-            break;
-          } catch (e) {
-            if (e.message.includes('429') || e.message.includes('rate limit')) {
-              retries++;
-              if (retries >= maxRetries) {
-                setLoadingText('Waiting for rate limit reset...');
-                await new Promise(resolve => setTimeout(resolve, 30000));
-                retries = 0;
-                setLoadingText('Retrying...');
-                continue;
-              }
-              setLoadingText(`Retrying... (attempt ${retries}/${maxRetries})`);
-              await new Promise(resolve => setTimeout(resolve, 5000));
-              continue;
-            }
-            throw e;
-          }
-          }
-        }
-        
-        const uniqueTests = [];
-        const seenNames = new Set();
-        if (mergedResults?.tests) {
-          for (const test of mergedResults.tests) {
-            const key = test.name.toLowerCase();
-            if (!seenNames.has(key)) {
-              seenNames.add(key);
-              uniqueTests.push(test);
-            }
-          }
-          mergedResults.tests = uniqueTests;
-        }
-        
-        return mergedResults || { patient_summary: 'Analysis incomplete', overall_status: 'attention', tests: [], key_findings: [], urgent_action_required: false };
-      };
 
       const processFile = async (selectedFile) => {
         setFile(selectedFile);
