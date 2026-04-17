@@ -233,13 +233,14 @@ Return JSON only. No markdown.`;
           const lineText = line.trim();
           if (!lineText) continue;
           
-          for (const testName of KNOWN_LAB_TESTS) {
-            const pattern = new RegExp(`${testName}[\\s:-]*(\\d+\\.?\\d*)\\s*(g\\/dL|mg\\/dL|mEq\\/L|ng\\/mL|pg\\/mL|K\\/uL|M\\/uL|mmol\\/L|ug\\/dL|mIU\\/L|%|fL|pg|\\/)??\\s*(?:\\(|Ref[:\\s]*)?([^)\\n,]*(?:\\d+[^)\\n,]*)?)?`, 'gi');
+            for (const testName of KNOWN_LAB_TESTS) {
+            const pattern = new RegExp(`${testName}[\\s:-]*(\\d+\\.?\\d*)\\s*(g\\/dL|mg\\/dL|mEq\\/L|ng\\/mL|pg\\/mL|K\\/uL|M\\/uL|mmol\\/L|ug\\/dL|mIU\\/L|%|fL|pg|\\/)??\\s*(?:\\(|Ref[:\\s]*)?([^)n]*(?:\\d+[^)n]*)?)?`, 'gi');
             let match;
             while ((match = pattern.exec(lineText)) !== null) {
               const value = match[1];
               const unit = (match[2] || '').trim();
               let ref = (match[3] || '').replace(/^[(\s]+|[)\s]+$/g, '').trim();
+              ref = ref.replace(/\(.*?\)/g, '').trim();
               if (ref && !ref.match(/^\d/)) ref = '';
               
               if (value && !tests.find(t => t.name.toLowerCase() === testName.toLowerCase())) {
@@ -347,7 +348,7 @@ Return JSON only. No markdown.`;
             const data = await response.json();
             let content = data.choices[0].message.content;
             content = content.replace(/```json\n?|```\n?/g, '').trim();
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            const jsonMatch = content.match(/\{[\s\S]*?\}/s);
             if (!jsonMatch) continue;
             
             let chunkResult;
@@ -357,7 +358,17 @@ Return JSON only. No markdown.`;
               let fixed = jsonMatch[0]
                 .replace(/,\s*\}/g, '}')
                 .replace(/,\s*\]/g, ']')
+                .replace(/\}\s*\]/g, '}]')
                 .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+              const bracketFix = (str) => {
+                let depth = 0;
+                return str.split('').map(c => {
+                  if (c === '{') depth++;
+                  else if (c === '}') depth--;
+                  return depth < 0 ? '' : c;
+                }).join('');
+              };
+              fixed = bracketFix(fixed);
               try {
                 chunkResult = JSON.parse(fixed);
               } catch (e2) {
