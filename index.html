@@ -341,7 +341,19 @@ Return JSON only. No markdown.`;
           throw new Error('Could not parse response');
         }
         
-        return JSON.parse(jsonMatch[0]);
+        try {
+          return JSON.parse(jsonMatch[0]);
+        } catch (e) {
+          let cleaned = jsonMatch[0]
+            .replace(/,\s*([}\]])/g, '$1')
+            .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+            .replace(/:\s*'([^']*)'/g, ': "$1"');
+          try {
+            return JSON.parse(cleaned);
+          } catch (e2) {
+            throw new Error('Invalid JSON from AI');
+          }
+        }
       };
 
       const processFile = async (selectedFile) => {
@@ -358,7 +370,7 @@ Return JSON only. No markdown.`;
           const analysis = await analyzeLabResults(text, lang);
           setResult(analysis);
         } catch (err) {
-          setError(err.message || 'Failed to analyze PDF');
+          setError('Analysis failed. Please try again or use Demo mode.');
         } finally {
           setLoading(false);
           setLoadingText('Analyzing your lab results...');
