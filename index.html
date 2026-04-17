@@ -148,8 +148,344 @@
   <div id="root"></div>
   <script type="text/babel">
     const { useState, useCallback } = React;
-    
-    // App component will go here
+
+    // Configure PDF.js worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    // Groq API config
+    const GROQ_API_KEY = 'YOUR_GROQ_API_KEY'; // User must set this
+    const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+    const MODEL = 'qwen/qwen3-32b';
+
+    const LANG_OPTIONS = ['EN', 'FR', 'VN'];
+
+    const SYSTEM_PROMPT = `You are a clinical lab result analyzer. Extract ALL lab tests from the provided text.
+
+Return ONLY valid JSON, no markdown, no explanations, in this exact structure:
+{
+  "patient_summary": "2-3 sentence plain language summary in {lang}",
+  "overall_status": "normal|attention|urgent",
+  "tests": [
+    {
+      "name": "Test name",
+      "value": "measured value",
+      "unit": "unit",
+      "reference_range": "normal range",
+      "status": "normal|borderline|high|low|critical",
+      "explanation": "Plain language explanation max 2 sentences in {lang}",
+      "next_step": "Specific actionable recommendation in {lang}"
+    }
+  ],
+  "key_findings": ["finding 1", "finding 2", "finding 3"],
+  "urgent_action_required": true|false
+}
+
+Be medically accurate. Extract ALL tests found. Use standard clinical reference ranges. Return JSON only.`;
+
+    const STATUS_CONFIG = {
+      normal:     { label: 'Normal',     bg: '#e8f5e9', border: '#a5d6a7', badge: '#2e7d32' },
+      borderline: { label: 'Borderline', bg: '#fff8e1', border: '#ffe082', badge: '#f57f17' },
+      high:       { label: 'High',       bg: '#fff3e0', border: '#ffcc80', badge: '#e65100' },
+      low:        { label: 'Low',        bg: '#e3f2fd', border: '#90caf9', badge: '#1565c0' },
+      critical:   { label: 'Critical',   bg: '#ffebee', border: '#ef9a9a', badge: '#b71c1c' },
+    };
+
+    const OVERALL_CONFIG = {
+      normal:    { icon: '✓', title: 'All results within normal range', bg: '#e8f5e9', color: '#2e7d32' },
+      attention: { icon: '!', title: 'Some results need attention',      bg: '#fff3e0', color: '#e65100' },
+      urgent:    { icon: '!!', title: 'Urgent: consult a doctor soon',   bg: '#ffebee', color: '#b71c1c' },
+    };
+
+    function App() {
+      const [lang, setLang] = useState('EN');
+      const [file, setFile] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [result, setResult] = useState(null);
+      const [error, setError] = useState(null);
+      const [dragOver, setDragOver] = useState(false);
+
+      const extractTextFromPDF = async (pdfFile) => {
+        const arrayBuffer = await pdfFile.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        let fullText = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items.map(item => item.str).join(' ');
+          fullText += pageText + '\n';
+        }
+        return fullText;
+      };
+
+      const analyzeLabResults = async (text, language) => {
+        const langMap = { EN: 'English', FR: 'French', VN: 'Vietnamese' };
+        const prompt = SYSTEM_PROMPT.replace('{lang}', langMap[language]);
+        
+        const response = await fetch(GROQ_API_URL, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${GROQ_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: MODEL,
+            messages: [
+              { role: 'system', content: prompt },
+              { role: 'user', content: `Analyze this lab report:\n\n${text}` }
+            ],
+            temperature: 0.1
+          })
+        });
+
+        if (!response.ok) throw new Error('API request failed');
+        
+        const data = await response.json();
+        const content = data.choices[0].message.content;
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) throw new Error('Failed to parse response');
+        return JSON.parse(jsonMatch[0]);
+      };
+
+      const processFile = async (selectedFile) => {
+        setFile(selectedFile);
+        setError(null);
+        setResult(null);
+        setLoading(true);
+
+        try {
+          const text = await extractTextFromPDF(selectedFile);
+          const analysis = await analyzeLabResults(text, lang);
+          setResult(analysis);
+        } catch (err) {
+          setError(err.message || 'Failed to analyze PDF');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleDragOver = useCallback((e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }, []);
+
+      const handleDragLeave = useCallback((e) => {
+        e.preventDefault();
+        setDragOver(false);
+      }, []);
+
+      const handleDrop = useCallback((e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const droppedFile = e.dataTransfer.files[0];
+        if (droppedFile && droppedFile.type === 'application/pdf') {
+          processFile(droppedFile);
+        } else {
+          setError('Please upload a PDF file');
+        }
+      }, []);
+
+      const handleFileSelect = (e) => {
+        const selectedFile = e.target.files[0];
+        if (selectedFile) processFile(selectedFile);
+      };
+
+      const getStatusBadgeClass = (status) => {
+        const classes = {
+          normal: 'status-badge-normal',
+          borderline: 'status-badge-borderline',
+          high: 'status-badge-high',
+          low: 'status-badge-low',
+          critical: 'status-badge-critical'
+        };
+        return classes[status] || 'status-badge-normal';
+      };
+
+      const abnormalTests = result?.tests?.filter(t => 
+        t.status === 'high' || t.status === 'low' || t.status === 'critical' || t.status === 'borderline'
+      ) || [];
+
+      return (
+        <div className="app-container">
+          <div className="header">
+            <div className="header-content">
+              <div className="logo-icon">🧪</div>
+              <div className="header-text">
+                <h1>The Labs Analyzer</h1>
+                <p>AI-powered lab report analysis powered by Qwen3-32B</p>
+                <span className="elfie-badge">Elfie Healthcare Track</span>
+              </div>
+            </div>
+            <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 14, opacity: 0.9 }}>Language:</span>
+              {LANG_OPTIONS.map(opt => (
+                <button
+                  key={opt}
+                  onClick={() => setLang(opt)}
+                  style={{
+                    padding: '6px 16px',
+                    borderRadius: 20,
+                    border: 'none',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    background: lang === opt ? 'white' : 'rgba(255,255,255,0.2)',
+                    color: lang === opt ? '#667eea' : 'white'
+                  }}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {!result && !loading && !error && (
+            <div
+              className={`upload-zone ${dragOver ? 'drag-over' : ''}`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => document.getElementById('file-input').click()}
+            >
+              <div className="upload-icon">📄</div>
+              <div className="upload-title">Upload Lab Report PDF</div>
+              <div className="upload-subtitle">Drag and drop your PDF file here, or click to browse</div>
+              <button className="upload-button">Select PDF File</button>
+              <div className="upload-hint">Supports PDF files up to 10MB</div>
+              <input
+                type="file"
+                id="file-input"
+                className="file-input"
+                accept=".pdf"
+                onChange={handleFileSelect}
+              />
+            </div>
+          )}
+
+          {loading && (
+            <div className="loading-container">
+              <div className="spinner"></div>
+              <div className="loading-title">Analyzing your lab results...</div>
+              <div className="loading-text">Powered by Qwen3-32B via Groq API</div>
+              <div className="progress-bar">
+                <div className="progress-fill" style={{ width: '60%' }}></div>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="error-container">
+              <div className="error-icon">⚠️</div>
+              <div className="error-title">Analysis Failed</div>
+              <div className="error-text">{error}</div>
+              <button className="retry-button" onClick={() => { setError(null); setFile(null); }}>
+                Try Again
+              </button>
+            </div>
+          )}
+
+          {result && (
+            <div className="results-container">
+              {result.urgent_action_required && (
+                <div className="urgent-banner">
+                  <div className="urgent-icon">🚨</div>
+                  <div className="urgent-text">
+                    <div className="urgent-title">Urgent Medical Attention Required</div>
+                    <div className="urgent-description">Please consult with a healthcare professional immediately.</div>
+                  </div>
+                </div>
+              )}
+
+              <div className="summary-card">
+                <div className="summary-header">
+                  <div className="summary-title">Patient Summary</div>
+                  <div className={`status-badge status-${result.overall_status}`}>
+                    {OVERALL_CONFIG[result.overall_status]?.title || 'Review needed'}
+                  </div>
+                </div>
+                <div className="summary-text">{result.patient_summary}</div>
+              </div>
+
+              {result.key_findings?.length > 0 && (
+                <div className="findings-card">
+                  <div className="findings-title">Key Findings</div>
+                  <ul className="findings-list">
+                    {result.key_findings.map((finding, idx) => (
+                      <li key={idx} className="finding-item">
+                        <span className={`finding-icon ${
+                          result.urgent_action_required ? 'finding-critical' : 'finding-info'
+                        }`}>
+                          {result.urgent_action_required ? '!' : 'i'}
+                        </span>
+                        <span className="finding-text">{finding}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {abnormalTests.length > 0 && (
+                <div className="recommendations-card">
+                  <div className="recommendations-title">⚠️ Abnormal Results Requiring Attention</div>
+                  {abnormalTests.map((test, idx) => (
+                    <div key={idx} className="recommendation-item" style={{ borderLeftColor: STATUS_CONFIG[test.status]?.badge || '#22c55e' }}>
+                      <div className="recommendation-number">{idx + 1}</div>
+                      <div className="recommendation-content">
+                        <div className="recommendation-test">{test.name} - {test.value} {test.unit}</div>
+                        <div className="recommendation-text">{test.explanation}</div>
+                        <div className="next-step">Next step: {test.next_step}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="table-card">
+                <div className="table-header">
+                  <div className="table-title">Complete Lab Results</div>
+                  <div className="table-subtitle">{result.tests?.length || 0} tests analyzed</div>
+                </div>
+                <table className="results-table">
+                  <thead>
+                    <tr>
+                      <th>Test</th>
+                      <th>Result</th>
+                      <th>Reference Range</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.tests?.map((test, idx) => (
+                      <tr key={idx}>
+                        <td className="test-name">{test.name}</td>
+                        <td>
+                          <span className="test-value">{test.value}</span>
+                          <span className="test-unit">{test.unit}</span>
+                        </td>
+                        <td className="reference-range">{test.reference_range}</td>
+                        <td>
+                          <span className={`test-status ${getStatusBadgeClass(test.status)}`}>
+                            {STATUS_CONFIG[test.status]?.label || test.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <button className="new-analysis-btn" onClick={() => { setResult(null); setFile(null); }}>
+                Analyze Another Report
+              </button>
+            </div>
+          )}
+
+          <div className="footer">
+            Powered by <a href="https://groq.com" target="_blank">Groq</a> with <a href="https://qwenlm.ai" target="_blank">Qwen3-32B</a> |
+            Built for Elfie Healthcare Track | <a href="https://qwen.ai/build" target="_blank">Qwen AI Build Day</a>
+          </div>
+        </div>
+      );
+    }
     
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
