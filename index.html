@@ -287,15 +287,11 @@ Return JSON only. No markdown.`;
         setLoadingText('Analyzing lab results...');
         
         const prompt = `You are a medical lab results analyzer. Return ONLY valid JSON with this exact structure - no markdown, no explanation:
-{"patient_summary":"summary text","overall_status":"good|attention|critical","urgent_action_required":false,"key_findings":["finding1"],"tests":[{"name":"Test Name","value":"123","unit":"mg/dL","reference_range":"70-100","status":"normal|high|low","explanation":"Brief explanation","next_step":"What to do"}]}`;
+{"tests":[{"name":"Test Name","value":"123","unit":"mg/dL","reference_range":"70-100","status":"normal|high|low","explanation":"Brief explanation","next_step":"What to do"}]}`;
         
-        const sendWithRetry = async (attempt = 0) => {
-          const groqLimits = { rpm: 60, minWait: 1000 };
-          
+        const analyzeChunk = async (chunkText, attempt = 0) => {
           if (attempt > 0) {
-            const waitTime = Math.min(groqLimits.minWait * attempt, 30000);
-            setLoadingText(`Retrying... (${attempt}/3)`);
-            await new Promise(r => setTimeout(r, waitTime));
+            await new Promise(r => setTimeout(r, 1500 * attempt));
           }
           
           try {
@@ -309,72 +305,87 @@ Return JSON only. No markdown.`;
                 model: currentProv.model,
                 messages: [
                   { role: 'system', content: prompt },
-                  { role: 'user', content: `Parse this lab report text and return JSON only:\n\n${text.substring(0, 4000)}` }
+                  { role: 'user', content: `Extract lab tests from this text. Return JSON only:\n\n${chunkText}` }
                 ],
                 temperature: 0.1,
-                max_tokens: 2000
+                max_tokens: 1500
               })
             });
             
             if (response.status === 429) {
-              if (attempt >= 2) {
-                throw new Error('Rate limit exceeded. Please wait a minute and try again.');
-              }
-              return sendWithRetry(attempt + 1);
+              if (attempt >= 2) return null;
+              return analyzeChunk(chunkText, attempt + 1);
             }
             
-            if (!response.ok) {
-              throw new Error(`API error (${response.status})`);
-            }
+            if (!response.ok) return null;
             
-            return response;
+            const data = await response.json();
+            let content = data.choices[0].message.content;
+            content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+            content = content.replace(/```json\n?|```\n?/g, '').trim();
+            
+            const jsonMatch = content.match(/\{[\s\S]*\}/s);
+            if (!jsonMatch) return null;
+            
+            return JSON.parse(jsonMatch[0]);
           } catch (e) {
-            if (e.message.includes('Failed to fetch') || e.message.includes('connection') || e.message.includes('network')) {
-              if (attempt >= 2) {
-                throw new Error('Network error. Check connection and try again.');
-              }
-              return sendWithRetry(attempt + 1);
-            }
-            throw e;
+            if (attempt >= 2) return null;
+            return analyzeChunk(chunkText, attempt + 1);
           }
         };
         
-        const response = await sendWithRetry();
-        const data = await response.json();
-        let content = data.choices[0].message.content;
-        content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-        content = content.replace(/```json\n?|```\n?/g, '').trim();
+        const lines = text.split('\n').filter(l => l.trim().length > 3);
+        const chunks = [];
+        let currentChunk = [];
+        let currentLen = 0;
+        const maxLen = 2500;
         
-        const jsonStart = content.indexOf('{');
-        const jsonEnd = content.lastIndexOf('}');
-        if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
-          throw new Error('No valid JSON found in response');
+        for (const line of lines) {
+          if (currentLen + line.length > maxLen && currentChunk.length > 0) {
+            chunks.push(currentChunk.join('\n'));
+            currentChunk = [];
+            currentLen = 0;
+          }
+          currentChunk.push(line);
+          currentLen += line.length;
+        }
+        if (currentChunk.length > 0) {
+          chunks.push(currentChunk.join('\n'));
         }
         
-        let jsonStr = content.substring(jsonStart, jsonEnd + 1);
+        setLoadingText(`Analyzing ${chunks.length} section(s)...`);
         
-        let result;
-        try {
-          result = JSON.parse(jsonStr);
-        } catch (e) {
-          jsonStr = jsonStr
-            .replace(/,\s*([}\]])/g, '$1')
-            .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
-            .replace(/:\s*'([^']*)'/g, ': "$1"')
-            .replace(/\n/g, ' ')
-            .replace(/\s+/g, ' ');
-          try {
-            result = JSON.parse(jsonStr);
-          } catch (e2) {
-            throw new Error('Invalid JSON response from AI');
+        let allTests = [];
+        const seenNames = new Set();
+        
+        for (let i = 0; i < chunks.length; i++) {
+          setLoadingText(`Analyzing section ${i + 1}/${chunks.length}...`);
+          await new Promise(r => setTimeout(r, 1200));
+          
+          const result = await analyzeChunk(chunks[i]);
+          if (result?.tests) {
+            for (const t of result.tests) {
+              const nameKey = t.name?.toLowerCase();
+              if (nameKey && !seenNames.has(nameKey)) {
+                seenNames.add(nameKey);
+                allTests.push(t);
+              }
+            }
           }
         }
         
-        if (!result?.tests?.length) {
-          throw new Error('No tests found in response');
+        if (allTests.length === 0) {
+          throw new Error('No tests found in PDF');
         }
         
-        return result;
+        const abnormal = allTests.filter(t => t.status !== 'normal').length;
+        return {
+          tests: allTests,
+          patient_summary: `Found ${allTests.length} lab tests. ${abnormal} values need attention.`,
+          overall_status: abnormal > 3 ? 'attention' : 'good',
+          urgent_action_required: false,
+          key_findings: allTests.filter(t => t.status === 'high' || t.status === 'low' || t.status === 'critical').slice(0, 3).map(t => `${t.name}: ${t.value}`)
+        };
       };
 
       const processFile = async (selectedFile) => {
