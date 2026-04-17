@@ -1,0 +1,41 @@
+LABORATORY REPORT
+Patient: John Doe
+Date: April 15, 2026
+Reference: LAB-2026-0415-001
+
+COMPLETE BLOOD COUNT (CBC)
+--------------------------
+Hemoglobin: 16.2 g/dL (Ref: 12.0-16.0)
+Hematocrit: 48% (Ref: 36-46%)
+Red Blood Cells: 5.2 M/uL (Ref: 4.0-5.5)
+White Blood Cells: 7.5 K/uL (Ref: 4.5-11.0)
+Platelets: 250 K/uL (Ref: 150-400)
+
+LIPID PANEL
+-----------
+Total Cholesterol: 185 mg/dL (Ref: <200)
+HDL Cholesterol: 55 mg/dL (Ref: >40)
+LDL Cholesterol: 110 mg/dL (Ref: <100)
+Triglycerides: 140 mg/dL (Ref: <150)
+
+METABOLIC PANEL
+---------------
+Glucose (Fasting): 95 mg/dL (Ref: 70-100)
+BUN: 15 mg/dL (Ref: 7-20)
+Creatinine: 0.9 mg/dL (Ref: 0.6-1.2)
+Sodium: 140 mEq/L (Ref: 136-145)
+Potassium: 4.2 mEq/L (Ref: 3.5-5.0)
+
+VITAMINS
+--------
+Vitamin D: 18 ng/mL (Ref: 30-100)
+Vitamin B12: 450 pg/mL (Ref: 200-900)
+
+ENDOCRINE
+---------
+TSH: 2.5 mIU/L (Ref: 0.4-4.0)
+T4: 7.5 ug/dL (Ref: 4.5-12.0)
+
+Notes: Patient presents for routine checkup. Most values within normal limits.
+Hemoglobin slightly elevated - recommend hydration.
+Vitamin D supplementation may be beneficial.
