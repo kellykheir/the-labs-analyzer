@@ -3,9 +3,6 @@
 ## Project Name
 The Labs Analyzer
 
-## Team Members
-[TO FILL: Add your team member names and roles]
-
 ## Track
 **Healthcare Track (Elfie)** - Challenge #3: Lab Report Analysis
 
