@@ -291,43 +291,52 @@ Return JSON only. No markdown.`;
         
         const sendWithRetry = async (attempt = 0) => {
           const groqLimits = { rpm: 60, minWait: 1000 };
-          const waitTime = Math.min(groqLimits.minWait * (attempt + 1), 60000);
           
           if (attempt > 0) {
-            setLoadingText(`Rate limited. Waiting ${waitTime/1000}s...`);
+            const waitTime = Math.min(groqLimits.minWait * attempt, 30000);
+            setLoadingText(`Retrying... (${attempt}/3)`);
+            await new Promise(r => setTimeout(r, waitTime));
           }
           
-          await new Promise(r => setTimeout(r, groqLimits.minWait));
-          
-          const response = await fetch(currentProv.apiUrl, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${key}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              model: currentProv.model,
-              messages: [
-                { role: 'system', content: prompt },
-                { role: 'user', content: `Parse this lab report text and return JSON only:\n\n${text.substring(0, 4000)}` }
-              ],
-              temperature: 0.1,
-              max_tokens: 2000
-            })
-          });
-          
-          if (response.status === 429) {
-            if (attempt >= 4) {
-              throw new Error('Rate limit exceeded. Please wait a minute and try again.');
+          try {
+            const response = await fetch(currentProv.apiUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${key}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                model: currentProv.model,
+                messages: [
+                  { role: 'system', content: prompt },
+                  { role: 'user', content: `Parse this lab report text and return JSON only:\n\n${text.substring(0, 4000)}` }
+                ],
+                temperature: 0.1,
+                max_tokens: 2000
+              })
+            });
+            
+            if (response.status === 429) {
+              if (attempt >= 2) {
+                throw new Error('Rate limit exceeded. Please wait a minute and try again.');
+              }
+              return sendWithRetry(attempt + 1);
             }
-            return sendWithRetry(attempt + 1);
+            
+            if (!response.ok) {
+              throw new Error(`API error (${response.status})`);
+            }
+            
+            return response;
+          } catch (e) {
+            if (e.message.includes('Failed to fetch') || e.message.includes('connection') || e.message.includes('network')) {
+              if (attempt >= 2) {
+                throw new Error('Network error. Check connection and try again.');
+              }
+              return sendWithRetry(attempt + 1);
+            }
+            throw e;
           }
-          
-          if (!response.ok) {
-            throw new Error(`API error (${response.status})`);
-          }
-          
-          return response;
         };
         
         const response = await sendWithRetry();
@@ -382,7 +391,11 @@ Return JSON only. No markdown.`;
           const analysis = await analyzeLabResults(text, lang);
           setResult(analysis);
         } catch (err) {
-          setError('Analysis failed. Please try again or use Demo mode.');
+          if (err.message.includes('Failed to fetch') || err.message.includes('connection')) {
+            setError('Network error. Check your connection and try again.');
+          } else {
+            setError(err.message || 'Analysis failed. Please try again.');
+          }
         } finally {
           setLoading(false);
           setLoadingText('Analyzing your lab results...');
