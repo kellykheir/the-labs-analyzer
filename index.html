@@ -177,12 +177,15 @@ Return JSON only. No markdown.`;
       const [result, setResult] = useState(null);
       const [error, setError] = useState(null);
       const [dragOver, setDragOver] = useState(false);
+      const [provider, setProvider] = useState(localStorage.getItem('ai_provider') || 'groq');
       const [apiKey, setApiKey] = useState(localStorage.getItem(`api_key_${localStorage.getItem('ai_provider') || 'groq'}`) || '');
       const [showKeyInput, setShowKeyInput] = useState(false);
       const [chatOpen, setChatOpen] = useState(false);
       const [messages, setMessages] = useState([]);
       const [chatInput, setChatInput] = useState('');
       const [chatLoading, setChatLoading] = useState(false);
+      
+      const currentProvider = PROVIDERS.find(p => p.id === provider) || PROVIDERS[0];
 
     const MAX_TESTS_PER_CHUNK = 15;
     let lastRequestTime = 0;
