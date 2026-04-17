@@ -284,44 +284,47 @@ Return JSON only. No markdown.`;
         const langMap = { EN: 'English', FR: 'French', VN: 'Vietnamese', AR: 'Arabic' };
         const currentLang = langMap[lang] || 'English';
         
-        const tests = parseLabTests(text);
-        if (tests.length === 0) {
-          throw new Error('No lab tests found in PDF. Make sure the PDF contains text (not just images).');
-        }
+        const userMessage = `Extract and analyze all lab test results from this text. Identify each test with its name, value, unit, and reference range.\n\n${text}`;
+        const prompt = `You are a medical lab results analyzer. Parse the following text and extract all lab tests with their values, units, and reference ranges. Return a JSON object with this exact structure:
+{
+  "patient_summary": "Brief summary of overall health in ${currentLang}",
+  "overall_status": "good" or "attention" or "critical",
+  "tests": [
+    {
+      "name": "Test Name",
+      "value": "actual value",
+      "unit": "unit of measurement",
+      "reference_range": "normal range",
+      "status": "normal" or "borderline" or "high" or "low" or "critical",
+      "explanation": "Simple explanation in ${currentLang}",
+      "next_step": "What to do next in ${currentLang}"
+    }
+  ],
+  "key_findings": ["Key finding 1", "Key finding 2"],
+  "urgent_action_required": true or false
+}
+If no tests are found, return empty arrays and "Analysis incomplete" as summary.`;
+
+        let retries = 0;
+        const maxRetries = 3;
         
-        const chunks = [];
-        for (let i = 0; i < tests.length; i += MAX_TESTS_PER_CHUNK) {
-          chunks.push(tests.slice(i, i + MAX_TESTS_PER_CHUNK));
-        }
-        
-        let mergedResults = null;
-        
-        for (let i = 0; i < chunks.length; i++) {
-          await waitForRateLimit();
-          
-          const testsJson = JSON.stringify(chunks[i], null, 2);
-          const userMessage = `Analyze these lab tests:\n${testsJson}`;
-          const prompt = SYSTEM_PROMPT(currentLang);
-          let retries = 0;
-          const maxRetries = 3;
-          
-          while (retries < maxRetries) {
-            try {
-              const response = await fetch(currentProv.apiUrl, {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${key}`,
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  model: currentProv.model,
-                  messages: [
-                    { role: 'system', content: prompt },
-                    { role: 'user', content: userMessage }
-                  ],
-                  temperature: 0.1,
-                  max_tokens: 3000
-              })
+        while (retries < maxRetries) {
+          try {
+            const response = await fetch(currentProv.apiUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${key}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                model: currentProv.model,
+                messages: [
+                  { role: 'system', content: prompt },
+                  { role: 'user', content: userMessage }
+                ],
+                temperature: 0.1,
+                max_tokens: 4000
+            })
             });
 
             if (!response.ok) {
@@ -339,36 +342,59 @@ Return JSON only. No markdown.`;
                 await new Promise(resolve => setTimeout(resolve, waitSec * 1000));
                 continue;
               }
-              if (response.status === 413) throw new Error('Too many tests. Please use a shorter report.');
               throw new Error(`API error (${response.status})`);
             }
             
-            retries = maxRetries;
-
             const data = await response.json();
             let content = data.choices[0].message.content;
             content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
             content = content.replace(/```json\n?|```\n?/g, '').trim();
-            const jsonMatch = content.match(/\{[\s\S]*?\}/s);
-            if (!jsonMatch) continue;
             
-            let chunkResult;
+            const jsonMatch = content.match(/\{[\s\S]*\}/s);
+            if (!jsonMatch) {
+              retries++;
+              continue;
+            }
+            
+            let result;
             try {
-              chunkResult = JSON.parse(jsonMatch[0]);
+              result = JSON.parse(jsonMatch[0]);
             } catch (e) {
               let fixed = jsonMatch[0]
                 .replace(/,\s*\}/g, '}')
                 .replace(/,\s*\]/g, ']')
                 .replace(/\}\s*\]/g, '}]')
                 .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
-              const bracketFix = (str) => {
-                let depth = 0;
-                return str.split('').map(c => {
-                  if (c === '{') depth++;
-                  else if (c === '}') depth--;
-                  return depth < 0 ? '' : c;
-                }).join('');
-              };
+              result = JSON.parse(fixed);
+            }
+            
+            const seenNames = new Set();
+            if (result?.tests) {
+              result.tests = result.tests.filter(t => {
+                if (seenNames.has(t.name?.toLowerCase())) return false;
+                seenNames.add(t.name?.toLowerCase());
+                return true;
+              });
+            }
+            
+            return result;
+          } catch (e) {
+            if (e.message?.includes('429')) {
+              retries++;
+              if (retries >= maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, 30000));
+                retries = 0;
+                continue;
+              }
+              await new Promise(resolve => setTimeout(resolve, 5000));
+              continue;
+            }
+            throw e;
+          }
+        }
+        
+        return { patient_summary: 'Analysis incomplete', overall_status: 'attention', tests: [], key_findings: [], urgent_action_required: false };
+      };
               fixed = bracketFix(fixed);
               try {
                 chunkResult = JSON.parse(fixed);
@@ -433,8 +459,6 @@ Return JSON only. No markdown.`;
 
         try {
           const text = await extractTextFromPDF(selectedFile);
-          console.log('=== EXTRACTED TEXT ===', text.substring(0, 500));
-          console.log('=== PARSED TESTS ===', parseLabTests(text));
           setLoadingText('Analyzing lab results...');
           const analysis = await analyzeLabResults(text, lang);
           setResult(analysis);
